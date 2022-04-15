@@ -16,7 +16,7 @@ import {
   Transfer,
 } from "../generated/templates/CToken/CToken"
 import { Borrow, Deposit, LendingProtocol, Liquidate, Market, Repay, Token, Withdraw } from "../generated/schema"
-import { BIGDECIMAL_ZERO, BIGINT_ZERO, LendingType, Network, ProtocolType, RiskType } from "./constants"
+import { BIGDECIMAL_HUNDRED, BIGDECIMAL_ONE, BIGDECIMAL_ZERO, BIGINT_ZERO, BLOCKS_PER_DAY, cTokenDecimals, cTokenDecimalsBD, DAYS_PER_YEAR, exponentToBigDecimal, LendingType, mantissaFactor, mantissaFactorBD, mantissaFactorBI, Network, ProtocolType, RiskType } from "./constants"
 
 let comptrollerAddr = Address.fromString("0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B")
 let ethAddr = Address.fromString("0x0000000000000000000000000000000000000000")
@@ -167,7 +167,6 @@ export function handleMint(event: Mint): void {
     return
   }
   if (market.inputTokens.length < 1) {
-    // make sure we can set deposit.asset
     log.warning("[handleMint] Market {} has no input tokens", [marketID])
     return
   }
@@ -207,7 +206,6 @@ export function handleRedeem(event: Redeem): void {
     return
   }
   if (market.inputTokens.length < 1) {
-    // make sure we can set withdraw.asset
     log.warning("[handleRedeem] Market {} has no input tokens", [marketID])
     return
   }
@@ -248,7 +246,6 @@ export function handleBorrow(event: BorrowEvent): void {
     return
   }
   if (market.inputTokens.length < 1) {
-    // make sure we can set borrow.asset
     log.warning("[handleBorrow] Market {} has no input tokens", [marketID])
     return
   }
@@ -290,7 +287,6 @@ export function handleRepayBorrow(event: RepayBorrow): void {
     return
   }
   if (market.inputTokens.length < 1) {
-    // make sure we can set repay.asset
     log.warning("[handleRepay] Market {} has no input tokens", [marketID])
     return
   }
@@ -332,7 +328,6 @@ export function handleLiquidateBorrow(event: LiquidateBorrow): void {
     return
   }
   if (market.inputTokens.length < 1) {
-    // make sure we can set liquidate.asset
     log.warning("[handleLiquidateBorrow] Market {} has no input tokens", [marketID])
     return
   }
@@ -360,10 +355,67 @@ export function handleLiquidateBorrow(event: LiquidateBorrow): void {
   liquidate.save()
 }
 
+//
+//
+// event.params:
+// - from
+// - to
+// - amount
 export function handleTransfer(event: Transfer): void {
+  let marketID = event.address.toHexString()
+  let market = Market.load(marketID)
+  if (!market) {
+    log.warning("[handleTransfer] Market not found: {}", [marketID])
+    return
+  }
+  if (market.inputTokens.length < 1) {
+    log.warning("[handleTransfer] Market {} has no input tokens", [marketID])
+    return
+  }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleTransfer] Underlying token not found: {}", [market.inputTokens[0]])
+    return
+  }
+
+  let cTokenContract = CToken.bind(event.address)
+  
+  let exchangeRateResult = cTokenContract.try_exchangeRateStored()
+  if (exchangeRateResult.reverted) {
+    log.warning("[handleTransfer] Failed to get exchangeRateStored of Market {}", [marketID])
+    // TODO: leverage memorized exchange rate?
+    return
+  }
+
+  let underlyingAmount = exchangeRateResult.value.times(event.params.amount).div(mantissaFactorBI)
+
+  // check if the Transfer is FROM a CToken contract, or TO a CToken contract
+  // - FROM a CToken contract, it is a mint. Need to plus deposit
+  // - TO a CToken contract, it is a redeem. Need to minus deposit
+  let isMint = event.params.from.toHexString() == marketID
+
+  if (isMint) {
+    market.inputTokenBalances[0] = market.inputTokenBalances[0].plus(underlyingAmount)
+    // TODO: update totalVolumeUSD
+  } else {
+    market.inputTokenBalances[0] = market.inputTokenBalances[0].minus(underlyingAmount)
+  }
+
+  // TODO: inputTokenPricesUSD
+
+  market.outputTokenSupply = getOrElse<BigInt>(cTokenContract.try_totalSupply(), BIGINT_ZERO)
+
+  // TODO: outputTokenPriceUSD
+
+  let underlyingSupplyUSD = market.inputTokenBalances[0].toBigDecimal().times(market.inputTokenPricesUSD[0])
+  market.totalValueLockedUSD = underlyingSupplyUSD
+  market.totalDepositUSD = underlyingSupplyUSD
+
+  market.save()
 }
 
 export function handleAccrueInterest(event: AccrueInterest): void {
+  accrueInterest(event.address, event.block.number.toI32(), event.block.timestamp.toI32())
 }
 
 function getOrCreateProtocol(): LendingProtocol {
@@ -386,6 +438,59 @@ function getOrCreateProtocol(): LendingProtocol {
   }
   return protocol
 }
+
+function accrueInterest(marketAddress: Address, blockNumber: i32, blockTimestamp: i32): void {
+  let marketID = marketAddress.toHexString()
+  let market = Market.load(marketID)
+  if (!market) {
+    log.warning("[accrueInterest] Market not found: {}", [marketID])
+    return
+  }
+  if (market._accuralBlockNumber >= blockNumber) {
+    return
+  }
+
+  let cTokenContract = CToken.bind(marketAddress)
+
+  let totalBorrowsResult = cTokenContract.try_totalBorrows()
+  if (totalBorrowsResult.reverted) {
+    log.warning("[accrueInterest] Failed to get totalBorrows of Market {}", [marketID])
+  } else {
+    let totalBorrows = totalBorrowsResult.value
+    // TODO: turn into USD
+  }
+
+  let supplyRatePerBlockResult = cTokenContract.try_supplyRatePerBlock()
+  if (supplyRatePerBlockResult.reverted) {
+    log.warning("[accrueInterest] Failed to get supplyRatePerBlock of Market {}", [marketID])
+  } else {
+    market.depositRate = convertRatePerBlockToAPY(supplyRatePerBlockResult.value)
+  }
+
+  let borrowRatePerBlockResult = cTokenContract.try_borrowRatePerBlock()
+  if (borrowRatePerBlockResult.reverted) {
+    log.warning("[accrueInterest] Failed to get borrowRatePerBlock of Market {}", [marketID])
+  } else {
+    market.variableBorrowRate = convertRatePerBlockToAPY(borrowRatePerBlockResult.value)
+  }
+  market._accuralBlockNumber = blockNumber
+  market.save()
+}
+
+function convertRatePerBlockToAPY(ratePerBlock: BigInt): BigDecimal {
+  return ratePerBlock.times(BigInt.fromI32(365 * 6570)).toBigDecimal().div(mantissaFactorBD).truncate(mantissaFactor)
+  // // TODO: compound each day
+  // // Formula: check out "Calculating the APY Using Rate Per Block" section https://compound.finance/docs/rate-per-block
+  // let a = ratePerBlock.times(BLOCKS_PER_DAY).plus(mantissaFactorBI)
+  // let b = mantissaFactorBI
+  // // cap by 255 to avoid u8 overflow, 255 + 110 = 365
+  // return pow(a, b, 255).times(pow(a, b, 110)).minus(BIGDECIMAL_ONE).times(BIGDECIMAL_HUNDRED)
+}
+
+// (a/b)^n, where n ranges [0, 255]
+// function pow(a: BigInt, b: BigInt, n: u8): BigDecimal {
+//   return a.pow(n).toBigDecimal().div(b.pow(n).toBigDecimal())
+// }
 
 // TODO: verify this is correct
 function convertMantissaToRatio(mantissa: BigInt): BigDecimal {

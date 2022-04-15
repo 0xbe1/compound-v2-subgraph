@@ -350,6 +350,10 @@ type Market @entity {
   repays: [Repay!]! @derivedFrom(field: "market")
 
   liquidates: [Liquidate!]! @derivedFrom(field: "market")
+
+  ### Add-Ons ###
+
+  _accuralBlockNumber: Int!
 }
 
 #################################

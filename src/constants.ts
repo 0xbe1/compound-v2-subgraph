@@ -83,7 +83,7 @@ export const INT_TWO = 2 as i32;
 
 export const BIGDECIMAL_ZERO = new BigDecimal(BIGINT_ZERO);
 export const BIGDECIMAL_ONE = new BigDecimal(BIGINT_ONE);
-export const BIGDECIMAL_TWO = new BigDecimal(BIGINT_TWO);
+export const BIGDECIMAL_HUNDRED = new BigDecimal(BigInt.fromI32(100));
 
 export const MAX_UINT = BigInt.fromI32(2).times(BigInt.fromI32(255));
 
@@ -101,3 +101,35 @@ export const MS_PER_YEAR = DAYS_PER_YEAR.times(new BigDecimal(BigInt.fromI32(24 
 /////////////////////////////
 
 export const COMPTROLLER_ADDRESS = "0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B";
+
+/////////////////////////////
+/////        Math       /////
+/////////////////////////////
+
+export const mantissaFactor = 18
+export const cTokenDecimals = 8
+export const mantissaFactorBD = exponentToBigDecimal(mantissaFactor)
+export const cTokenDecimalsBD = exponentToBigDecimal(cTokenDecimals)
+export const mantissaFactorBI = exponentToBigInt(mantissaFactor)
+export const cTokenDecimalsBI = exponentToBigInt(cTokenDecimals)
+
+// n => 10^n
+export function exponentToBigDecimal(decimals: i32): BigDecimal {
+    let bd = BIGDECIMAL_ONE
+    let ten = BigDecimal.fromString('10')
+    for (let i = 0; i < decimals; i++) {
+        bd = bd.times(ten)
+    }
+    return bd
+}
+
+export function exponentToBigInt(decimals: i32): BigInt {
+  let res = BIGINT_ONE
+  let ten = BigInt.fromI32(10)
+  for (let i = 0; i < decimals; i++) {
+    res = res.times(ten)
+  }
+  return res
+}
+
+export const BLOCKS_PER_DAY = BigInt.fromI32(6570)
