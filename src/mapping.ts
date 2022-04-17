@@ -141,16 +141,16 @@ export function handleNewLiquidationIncentive(
   protocol._liquidationIncentive = liquidationIncentive
   protocol.save()
 
-  // for (let i = 0; i < protocol.markets.length; i++) {
-  //   let market = Market.load(protocol.markets[i])
-  //   if (!market) {
-  //     log.warning("[handleNewLiquidationIncentive] Market not found: {}", [protocol.markets[i]])
-  //     // best effort
-  //     continue
-  //   }
-  //   market.liquidationPenalty = liquidationIncentive
-  //   market.save()
-  // }
+  for (let i = 0; i < protocol.markets.length; i++) {
+    let market = Market.load(protocol.markets[i])
+    if (!market) {
+      log.warning("[handleNewLiquidationIncentive] Market not found: {}", [protocol.markets[i]])
+      // best effort
+      continue
+    }
+    market.liquidationPenalty = liquidationIncentive
+    market.save()
+  }
 }
 
 //
