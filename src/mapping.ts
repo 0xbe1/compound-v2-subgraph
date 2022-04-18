@@ -4,6 +4,7 @@ import {
   MarketListed,
   NewCollateralFactor,
   NewLiquidationIncentive,
+  NewPriceOracle,
 } from "../generated/Comptroller/Comptroller"
 import { AccrueInterest, CToken, LiquidateBorrow } from "../generated/Comptroller/CToken"
 import { CToken as CTokenTemplate } from "../generated/templates"
@@ -16,13 +17,20 @@ import {
   Transfer,
 } from "../generated/templates/CToken/CToken"
 import { Borrow, Deposit, LendingProtocol, Liquidate, Market, Repay, Token, Withdraw } from "../generated/schema"
-import { BIGDECIMAL_ZERO, BIGINT_ZERO, LendingType, mantissaFactor, mantissaFactorBD, mantissaFactorBI, Network, ProtocolType, RiskType } from "./constants"
+import { BIGDECIMAL_ONE, BIGDECIMAL_ZERO, BIGINT_ZERO, cETHAddr, comptrollerAddr, cUSDCAddr, daiAddr, ethAddr, exponentToBigDecimal, LendingType, mantissaFactor, mantissaFactorBD, mantissaFactorBI, Network, ProtocolType, RiskType } from "./constants"
+import { PriceOracle } from "../generated/templates/CToken/PriceOracle"
+import { PriceOracle2 } from "../generated/templates/CToken/PriceOracle2"
 
-let comptrollerAddr = Address.fromString("0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B")
-let ethAddr = Address.fromString("0x0000000000000000000000000000000000000000")
-let cETHAddr = Address.fromString("0x4ddc2d193948926d02f9b1fe9e1daa0718270ed5")
-let daiAddr = Address.fromString("0x89d24a6b4ccb1b6faa2625fe562bdd9a23260359")
-let compAddr = "0xc00e94cb662c3520282e6f5717214004a7f26888"
+//
+//
+// event.params
+// - oldPriceOracle
+// - newPriceOracle
+export function handleNewPriceOracle(event: NewPriceOracle): void {
+  let protocol = getOrCreateProtocol();
+  protocol._priceOracle = event.params.newPriceOracle.toHexString();
+  protocol.save();
+}
 
 // 
 //
@@ -178,6 +186,11 @@ export function handleMint(event: Mint): void {
     log.warning("[handleMint] Market {} has no input tokens", [marketID])
     return
   }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleMint] Failed to load underlying token: {}", [market.inputTokens[0]])
+    return
+  }
 
   let depositID = event.transaction.hash
     .toHexString()
@@ -195,8 +208,7 @@ export function handleMint(event: Mint): void {
   deposit.market = marketID
   deposit.asset = market.inputTokens[0]
   deposit.amount = event.params.mintAmount
-  // " Amount of token deposited in USD "
-  // TODO: amountUSD: BigDecimal!
+  deposit.amountUSD = market.inputTokenPricesUSD[0].times(event.params.mintAmount.toBigDecimal().div(exponentToBigDecimal(underlyingToken.decimals)))
   deposit.save()
 }
 
@@ -217,6 +229,11 @@ export function handleRedeem(event: Redeem): void {
     log.warning("[handleRedeem] Market {} has no input tokens", [marketID])
     return
   }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleRedeem] Failed to load underlying token: {}", [market.inputTokens[0]])
+    return
+  }
 
   let withdrawID = event.transaction.hash
   .toHexString()
@@ -234,8 +251,7 @@ export function handleRedeem(event: Redeem): void {
   withdraw.market = marketID
   withdraw.asset = market.inputTokens[0]
   withdraw.amount = event.params.redeemAmount
-  // " Amount of token withdrawn in USD "
-  // TODO: amountUSD: BigDecimal!
+  withdraw.amountUSD = market.inputTokenPricesUSD[0].times(event.params.redeemAmount.toBigDecimal().div(exponentToBigDecimal(underlyingToken.decimals)))
   withdraw.save()
 }
 
@@ -257,6 +273,11 @@ export function handleBorrow(event: BorrowEvent): void {
     log.warning("[handleBorrow] Market {} has no input tokens", [marketID])
     return
   }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleBorrow] Failed to load underlying token: {}", [market.inputTokens[0]])
+    return
+  }
 
   let borrowID = event.transaction.hash
   .toHexString()
@@ -274,8 +295,7 @@ export function handleBorrow(event: BorrowEvent): void {
   borrow.market = marketID
   borrow.asset = market.inputTokens[0]
   borrow.amount = event.params.borrowAmount
-  // " Amount of token borrowed in USD "
-  // TODO: amountUSD: BigDecimal
+  borrow.amountUSD = market.inputTokenPricesUSD[0].times(event.params.borrowAmount.toBigDecimal().div(exponentToBigDecimal(underlyingToken.decimals)))
   borrow.save()
 }
 
@@ -291,11 +311,16 @@ export function handleRepayBorrow(event: RepayBorrow): void {
   let marketID = event.address.toHexString()
   let market = Market.load(marketID)
   if (!market) {
-    log.warning("[handleRepay] Market not found: {}", [marketID])
+    log.warning("[handleRepayBorrow] Market not found: {}", [marketID])
     return
   }
   if (market.inputTokens.length < 1) {
-    log.warning("[handleRepay] Market {} has no input tokens", [marketID])
+    log.warning("[handleRepayBorrow] Market {} has no input tokens", [marketID])
+    return
+  }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleRepayBorrow] Failed to load underlying token: {}", [market.inputTokens[0]])
     return
   }
 
@@ -315,8 +340,7 @@ export function handleRepayBorrow(event: RepayBorrow): void {
   repay.market = marketID
   repay.asset = market.inputTokens[0]
   repay.amount = event.params.repayAmount
-  // " Amount of token repaid in USD "
-  // TODO: amountUSD: BigDecimal
+  repay.amountUSD = market.inputTokenPricesUSD[0].times(event.params.repayAmount.toBigDecimal().div(exponentToBigDecimal(underlyingToken.decimals)))
   repay.save()
 }
 
@@ -339,6 +363,11 @@ export function handleLiquidateBorrow(event: LiquidateBorrow): void {
     log.warning("[handleLiquidateBorrow] Market {} has no input tokens", [marketID])
     return
   }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[handleLiquidateBorrow] Failed to load underlying token: {}", [market.inputTokens[0]])
+    return
+  }
 
   let liquidateID = event.transaction.hash
   .toHexString()
@@ -356,8 +385,7 @@ export function handleLiquidateBorrow(event: LiquidateBorrow): void {
   liquidate.market = marketID
   liquidate.asset = market.inputTokens[0]
   liquidate.amount = event.params.repayAmount
-  // " Amount of token liquidated in USD "
-  // TODO: amountUSD: BigDecimal
+  liquidate.amountUSD = market.inputTokenPricesUSD[0].times(event.params.repayAmount.toBigDecimal().div(exponentToBigDecimal(underlyingToken.decimals)))
   // " Amount of profit from liquidation in USD "
   // TODO: profitUSD: BigDecimal
   liquidate.save()
@@ -395,6 +423,7 @@ export function handleTransfer(event: Transfer): void {
     return
   }
 
+  // TODO: confirm unit
   let underlyingAmount = exchangeRateResult.value.times(event.params.amount).div(mantissaFactorBI)
 
   // check if the Transfer is FROM a CToken contract, or TO a CToken contract
@@ -405,15 +434,12 @@ export function handleTransfer(event: Transfer): void {
   if (isMint) {
     market.inputTokenBalances[0] = market.inputTokenBalances[0].plus(underlyingAmount)
     // TODO: update totalVolumeUSD
+    // market.totalVolumeUSD = market.totalVolumeUSD.plus(market.inputTokenPricesUSD[0].times(underlyingAmount))
   } else {
     market.inputTokenBalances[0] = market.inputTokenBalances[0].minus(underlyingAmount)
   }
 
-  // TODO: inputTokenPricesUSD
-
   market.outputTokenSupply = getOrElse<BigInt>(cTokenContract.try_totalSupply(), BIGINT_ZERO)
-
-  // TODO: outputTokenPriceUSD
 
   let underlyingSupplyUSD = market.inputTokenBalances[0].toBigDecimal().times(market.inputTokenPricesUSD[0])
   market.totalValueLockedUSD = underlyingSupplyUSD
@@ -447,6 +473,7 @@ function getOrCreateProtocol(): LendingProtocol {
   return protocol
 }
 
+// This function is called whenever mint, redeem, borrow, repay, liquidateBorrow happens
 function accrueInterest(marketAddress: Address, blockNumber: i32, blockTimestamp: i32): void {
   let marketID = marketAddress.toHexString()
   let market = Market.load(marketID)
@@ -457,6 +484,13 @@ function accrueInterest(marketAddress: Address, blockNumber: i32, blockTimestamp
   if (market._accuralBlockNumber >= blockNumber) {
     return
   }
+  let underlyingToken = Token.load(market.inputTokens[0])
+  if (!underlyingToken) {
+    log.warning("[accrueInterest] Underlying token not found: {}", [market.inputTokens[0]])
+    return
+  }
+
+  market.inputTokenPricesUSD[0] = getTokenPriceUSD(marketAddress, Address.fromString(market.inputTokens[0]), underlyingToken.decimals, blockNumber)
 
   let cTokenContract = CToken.bind(marketAddress)
 
@@ -504,6 +538,93 @@ function convertRatePerBlockToAPY(ratePerBlock: BigInt): BigDecimal {
 function convertMantissaToRatio(mantissa: BigInt): BigDecimal {
   return mantissa.toBigDecimal().div(BigDecimal.fromString("1000000000000000000"))
 }
+
+function getTokenPriceUSD(cTokenAddr: Address, underlyingAddr: Address, underlyingDecimals: i32, blockNumber: i32): BigDecimal {
+  // After block 10678764 price is calculated based on USD instead of ETH
+  if (blockNumber > 10678764) {
+      return getTokenPrice(
+        blockNumber,
+        cTokenAddr,
+        underlyingAddr,
+        underlyingDecimals,
+      )
+  } else {
+    let usdPriceInEth = getTokenPrice(
+      blockNumber,
+      cUSDCAddr,
+        Address.fromString('0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'),
+        6
+      )
+
+    if (cTokenAddr == cETHAddr) {
+      return BIGDECIMAL_ONE.div(usdPriceInEth).truncate(underlyingDecimals)
+    } else {
+      let tokenPriceEth = getTokenPrice(
+        blockNumber,
+        cTokenAddr,
+        underlyingAddr,
+        underlyingDecimals,
+      )
+      
+      return tokenPriceEth.truncate(underlyingDecimals).div(usdPriceInEth).truncate(underlyingDecimals)
+    }
+  }
+}
+
+// Used for all cERC20 contracts
+// Either USD or ETH price is returned
+function getTokenPrice(
+  blockNumber: i32,
+  cTokenAddr: Address,
+  underlyingAddr: Address,
+  underlyingDecimals: i32,
+): BigDecimal {
+  let protocol = getOrCreateProtocol()
+  let oracleAddress = Address.fromString(protocol._priceOracle)
+  let priceOracle1Address = Address.fromString('02557a5e05defeffd4cae6d83ea3d173b272c904')
+
+  /* PriceOracle2 is used at the block the Comptroller starts using it.
+   * see here https://etherscan.io/address/0x3d9819210a31b4961b30ef54be2aed79b9c9cd3b#events
+   * Search for event topic 0xd52b2b9b7e9ee655fcb95d2e5b9e0c9f69e7ef2b8e9d2d0ea78402d576d22e22,
+   * and see block 7715908.
+   *
+   * This must use the cToken address.
+   *
+   * Note this returns the value without factoring in token decimals and wei, so we must divide
+   * the number by (ethDecimals - tokenDecimals) and again by the mantissa.
+   * USDC would be 10 ^ ((18 - 6) + 18) = 10 ^ 30
+   *
+   * Note that they deployed 3 different PriceOracles at the beginning of the Comptroller,
+   * and that they handle the decimals different, which can break the subgraph. So we actually
+   * defer to Oracle 1 before block 7715908, which works,
+   * until this one is deployed, which was used for 121 days */
+  if (blockNumber > 7715908) {
+    let mantissaDecimalFactor = 18 - underlyingDecimals + 18
+    let bdFactor = exponentToBigDecimal(mantissaDecimalFactor)
+    let oracle2 = PriceOracle2.bind(oracleAddress)
+    let tryPrice = oracle2.try_getUnderlyingPrice(cTokenAddr)
+
+    return tryPrice.reverted
+      ? BIGDECIMAL_ZERO
+      : tryPrice.value.toBigDecimal().div(bdFactor)
+
+    /* PriceOracle(1) is used (only for the first ~100 blocks of Comptroller. Annoying but we must
+     * handle this. We use it for more than 100 blocks, see reason at top of if statement
+     * of PriceOracle2.
+     *
+     * This must use the token address, not the cToken address.
+     *
+     * Note this returns the value already factoring in token decimals and wei, therefore
+     * we only need to divide by the mantissa, 10^18 */
+  } else {
+    let oracle1 = PriceOracle.bind(priceOracle1Address)
+    return oracle1
+      .getPrice(underlyingAddr)
+      .toBigDecimal()
+      .div(mantissaFactorBD)
+  }
+}
+
 
 function getOrElse<T>(result: ethereum.CallResult<T>, defaultValue: T): T {
   if (result.reverted) {
