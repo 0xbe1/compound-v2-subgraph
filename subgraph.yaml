@@ -49,7 +49,7 @@ templates:
         - Withdraw
         - Borrow
         - Repay
-        - Liquidation
+        - Liquidate
       abis:
         - name: CToken
           file: ./abis/CToken.json
