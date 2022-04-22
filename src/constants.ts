@@ -83,12 +83,6 @@ export const BIGDECIMAL_ONE = new BigDecimal(BIGINT_ONE);
 export const SECONDS_PER_DAY = 60 * 60 * 24; // 86400
 
 /////////////////////////////
-///// Protocol Specific /////
-/////////////////////////////
-
-export const COMPTROLLER_ADDRESS = "0x3d9819210A31b4961b30EF54bE2aeD79B9c9Cd3B";
-
-/////////////////////////////
 /////        Math       /////
 /////////////////////////////
 

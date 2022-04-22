@@ -29,6 +29,7 @@ import {
 import {
   Account,
   Borrow,
+  DailyActiveAccount,
   Deposit,
   FinancialsDailySnapshot,
   LendingProtocol,
@@ -808,7 +809,7 @@ function snapshotMarket(
 
   let snapshotID = marketID
     .concat("-")
-    .concat((blockNumber.toI32() / SECONDS_PER_DAY).toString());
+    .concat((blockTimestamp.toI32() / SECONDS_PER_DAY).toString());
   let snapshot = new MarketDailySnapshot(snapshotID);
   snapshot.protocol = market.protocol;
   snapshot.market = marketID;
@@ -832,7 +833,7 @@ function snapshotMarket(
 }
 
 function snapshotFinancials(blockNumber: BigInt, blockTimestamp: BigInt): void {
-  let snapshotID = (blockNumber.toI32() / SECONDS_PER_DAY).toString();
+  let snapshotID = (blockTimestamp.toI32() / SECONDS_PER_DAY).toString();
   let snapshot = new FinancialsDailySnapshot(snapshotID);
 
   let protocol = getOrCreateProtocol();
@@ -899,7 +900,7 @@ function snapshotUsage(
   blockTimestamp: BigInt,
   accountID: string
 ): void {
-  let snapshotID = (blockNumber.toI32() / SECONDS_PER_DAY).toString();
+  let snapshotID = (blockTimestamp.toI32() / SECONDS_PER_DAY).toString();
   let protocol = getOrCreateProtocol();
   let snapshot = UsageMetricsDailySnapshot.load(snapshotID);
   if (!snapshot) {
@@ -913,6 +914,14 @@ function snapshotUsage(
 
     protocol.totalUniqueUsers += 1;
     protocol.save();
+  }
+  let dailyAccountID = snapshotID.concat("-").concat(accountID);
+  let dailyActiveAccount = DailyActiveAccount.load(dailyAccountID)
+  if (!dailyActiveAccount) {
+    dailyActiveAccount = new DailyActiveAccount(dailyAccountID);
+    dailyActiveAccount.save();
+
+    snapshot.activeUsers += 1;
   }
   snapshot.totalUniqueUsers = protocol.totalUniqueUsers;
   snapshot.dailyTransactionCount += 1;
@@ -981,6 +990,7 @@ function getTokenPriceUSD(
 
 // Used for all cERC20 contracts
 // Either USD or ETH price is returned
+// TODO: cleanup comments when possible
 function getTokenPrice(
   blockNumber: i32,
   cTokenAddr: Address,
