@@ -768,8 +768,11 @@ function updateMarket(marketAddress: Address, blockNumber: i32): void {
  * - [x] totalBorrowUSD
  */
 function updateProtocol(): void {
-  // TODO: should just get, not getOrCreate
-  let protocol = getOrCreateProtocol();
+  let protocol = LendingProtocol.load(comptrollerAddr.toHexString());
+  if (!protocol) {
+    log.error("[updateProtocol] Protocol not found, this SHOULD NOT happen", [])
+    return
+  }
   let protocolTotalValueLockedUSD = BIGDECIMAL_ZERO;
   let protocolTotalDepositUSD = BIGDECIMAL_ZERO;
   let protocolTotalBorrowUSD = BIGDECIMAL_ZERO;
@@ -836,7 +839,11 @@ function snapshotFinancials(blockNumber: BigInt, blockTimestamp: BigInt): void {
   let snapshotID = (blockTimestamp.toI32() / SECONDS_PER_DAY).toString();
   let snapshot = new FinancialsDailySnapshot(snapshotID);
 
-  let protocol = getOrCreateProtocol();
+  let protocol = LendingProtocol.load(comptrollerAddr.toHexString());
+  if (!protocol) {
+    log.error("[snapshotFinancials] Protocol not found, this SHOULD NOT happen", [])
+    return
+  }
   snapshot.protocol = protocol.id;
   snapshot.totalValueLockedUSD = protocol.totalValueLockedUSD;
   snapshot.totalDepositUSD = protocol.totalDepositUSD;
@@ -900,8 +907,12 @@ function snapshotUsage(
   blockTimestamp: BigInt,
   accountID: string
 ): void {
+  let protocol = LendingProtocol.load(comptrollerAddr.toHexString());
+  if (!protocol) {
+    log.error("[snapshotUsage] Protocol not found, this SHOULD NOT happen", [])
+    return
+  }
   let snapshotID = (blockTimestamp.toI32() / SECONDS_PER_DAY).toString();
-  let protocol = getOrCreateProtocol();
   let snapshot = UsageMetricsDailySnapshot.load(snapshotID);
   if (!snapshot) {
     snapshot = new UsageMetricsDailySnapshot(snapshotID);
@@ -997,8 +1008,13 @@ function getTokenPrice(
   underlyingAddr: Address,
   underlyingDecimals: i32
 ): BigDecimal {
-  let protocol = getOrCreateProtocol();
+  let protocol = LendingProtocol.load(comptrollerAddr.toHexString());
+  if (!protocol) {
+    log.error("[updateProtocol] Protocol not found, this SHOULD NOT happen", [])
+    return BIGDECIMAL_ZERO
+  }
   let oracleAddress = Address.fromString(protocol._priceOracle);
+  // TODO: no hardcode
   let priceOracle1Address = Address.fromString(
     "02557a5e05defeffd4cae6d83ea3d173b272c904"
   );
